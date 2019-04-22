@@ -1,0 +1,10 @@
+*.pyc
+.idea
+venv
+manual.pdf
+*~
+params/
+data/
+debug/
+doc/
+*/.DS_Store
