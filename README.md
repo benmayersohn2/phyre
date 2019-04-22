@@ -74,7 +74,7 @@ sys.path.append('/path/to/phyre/package')
 | |____constants.py                         # commonly-used constant values
 | |____components
 | | |____bio.py                             # the heart of the model! 
-| | |____integration.py                     # integrates indivudal model run over specified time
+| | |____integration.py                     # integrates individual model run over specified time
 | |____local_constants.py                   # user-specific constants (e.g. for sending sweeps to HPC)
 | |____model
 | | |____single.py                          # model setup for single runs
@@ -85,7 +85,7 @@ sys.path.append('/path/to/phyre/package')
 
 ### Credits
 
-Thanks to Inès Mangolte and Quentin Jutard of `L'OCEAN` for their input. 
+Thanks to Inès Mangolte and Quentin Jutard of [L'OCEAN](http://www.access-eu.org/en/partners/description_partners.html) for their input. 
 Inès developed a feature to add filtered Gaussian noise to the turnover rate. 
 Quentin helped implement a more realistic grazing parameterization. 
 Both discovered many a bug.
