@@ -145,7 +145,7 @@ ax[2].set_xticklabels(((xlist-xlist[0]) * c.NUM_DAYS_PER_YEAR).astype(int))
 
 num_years_spectrum = 30
 
-spectrum_kw = {'subtract_mean': True, 'sort': 'freqs', 'normalize': True}
+spectrum_kw = {'detrend': 'constant', 'sort': 'freqs', 'normalize': True}
 alpha = 0.6
 phy_freqs, phy_amps = al.filtered_spectrum(eco, params, num_years=num_years_spectrum,
                                            compartments=[{'phy': phy_indices}], **spectrum_kw)

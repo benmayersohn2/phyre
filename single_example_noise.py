@@ -24,7 +24,7 @@ res_forcing_scale = 18.1  # in nitrogen units
 include_zoo = True
 
 # add noise with a bandpass filter to the turnover coefficient
-noise_amp = 0.1  # the noise is small and not so noticeable
+noise_sd = 0.1  # the noise is small and not so noticeable
 noise_freq = [1.0/360, 2.0/360]
 noise_filter = 'bandpass'
 
@@ -138,7 +138,7 @@ zoo_0 = 1e-2
 
 # Bio parameters go directly into rhs_build function
 bio = {'zoo_low_pref': zoo_low_pref, 'zoo_high_pref': zoo_high_pref, 'phy_small_indices': phy_small_indices,
-       'zoo_slop_feed': zoo_slop_feed, 'noise_amp': noise_amp,
+       'zoo_slop_feed': zoo_slop_feed, 'noise_sd': noise_sd,
        'noise_freq': noise_freq, 'noise_filter': noise_filter,
        'res_phy_makeup_ratio': res_phy_makeup_ratio,
        'phy_large_indices': phy_large_indices, 'res_export_frac': res_export_frac,

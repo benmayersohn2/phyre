@@ -2,7 +2,7 @@
 plot_single.py: plot results from single simulation
 """
 
-from typing import Dict, List, Union, Optional, Tuple
+from typing import Dict, List, Union, Optional, Iterable
 import matplotlib.axes as mat_ax
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -11,7 +11,6 @@ import numpy as np
 from phyre import helpers
 import phyre.constants as c
 import phyre.analysis.analysis as al
-import copy
 
 
 class SinglePlotter(object):
@@ -39,8 +38,8 @@ class SinglePlotter(object):
 
     """
 
-    def __init__(self, params_name: str=None, params: Dict=None, eco_in: np.ndarray=None, t_in: np.ndarray=None,
-                 details_str: str=None):
+    def __init__(self, params_name: str = None, params: Dict = None, eco_in: np.ndarray = None,
+                 t_in: np.ndarray = None, details_str: str = None):
 
         """Initialize SinglePlotter
 
@@ -78,13 +77,12 @@ class SinglePlotter(object):
         self.num_days = self.params['num_days']
         self.num_years = self.num_days / c.NUM_DAYS_PER_YEAR
 
-    def time_series_plot(self, kind: str='indiv', ax: mat_ax.Axes=None,
-                         plotting_threshold: float=-np.infty, labels: List=None, return_lines:bool=True,
-                         num_years: int=None, num_days: int=None, color_kw: Dict=None,
-                         plot_kw: Dict=None, legend_kw: Dict=None, legend_off: bool=False,
-                         resize_box: tuple=(0, 0.2, 0, 0.7),
-                         compartments: List[Dict]=[{'phy': 'all'}], res_to_carbon: Union[bool, int, list]=True,
-                         nit_combine: bool=False, phy_index: int=None):
+    def time_series_plot(self, kind: str = 'indiv', ax: mat_ax.Axes = None,
+                         plotting_threshold: float = -np.infty, labels: List = None, return_lines: bool = True,
+                         num_years: int = None, num_days: int = None, color_kw: Dict = None,
+                         plot_kw: Dict = None, legend_kw: Dict = None, legend_off: bool = False,
+                         resize_box: tuple = (0, 0.2, 0, 0.7), compartments: Iterable[Dict] = ({'phy': 'all'},),
+                         res_to_carbon: Union[bool, int, list] = True, phy_index: int = None):
 
         """Plot one or more time series from the stored ecosystem
 
@@ -180,29 +178,10 @@ class SinglePlotter(object):
                 conversion = None
 
                 # get name_list for just this set of compartments
-                curr_name_list = copy.deepcopy([name_list[x] for x in range(len(indices))])
-                single_nit = self.params.get('bio').get('single_nit')
-                silicate_off = self.params.get('bio').get('silicate_off')
+                curr_name_list = [x for x in name_list if x.startswith(helpers.short_name(key))]
                 if key == 'res':
                     if res_to_carbon not in (False, 0):
                         conversion = al.res_to_carbon_conversions(eco, self.params, phy_index=phy_index)
-
-                    if silicate_off not in (False, 0) and c.SIL_INDEX in indices:
-                        indices.remove(c.SIL_INDEX)
-                        curr_name_list.remove(r'R$_5$')  # we only have four nutrients now, remove last one...
-
-                    if single_nit in (1, True) or nit_combine in (1, True) and c.NH4_INDEX in indices:  # single_nit overrides nit_combine
-                        indices.remove(c.NH4_INDEX)
-
-                    if nit_combine in (1, True) and single_nit in (False, None, 0):
-                        if r'R$_1$' in name_list and r'R$_2$' in name_list:
-                            ind = name_list.index(r'R$_1$')
-                            curr_name_list[ind] = r'R$_1$ + R$_2$'
-                            curr_name_list.remove(r'R$_2$')
-
-                    if single_nit in (1, True):
-                        if r'R$_4$' in name_list:
-                            curr_name_list.remove(r'R$_4$')
 
                 for ind, r in enumerate(indices):
                     start_index = list(helpers.eco_indices(key, self.params['bio']))[0]
@@ -210,12 +189,8 @@ class SinglePlotter(object):
                     output = np.squeeze(eco[start_index + r, :])
 
                     # convert resource to phyto units
-                    if key == 'res':
-                        if nit_combine and r == 0:
-                            output += np.squeeze(eco[start_index + 1, :])
-
-                        if res_to_carbon is not False:
-                            output = conversion[r, :]
+                    if key == 'res' and res_to_carbon is not False:
+                        output = conversion[r, :]
 
                     if np.mean(output) >= plotting_threshold:
                         new_name_list.append(name)
@@ -249,7 +224,7 @@ class SinglePlotter(object):
                 return plt_obj
 
     # plot total biomass
-    def biomass_plot(self, num_years: int=None, num_days: int=None, ax: mat_ax.Axes=None):
+    def biomass_plot(self, num_days: int = None, ax: mat_ax.Axes = None):
 
         """Plot the total biomass
 
@@ -283,10 +258,10 @@ class SinglePlotter(object):
 
         ax.plot(ty_vec, biomass, label='Total Biomass', linewidth=2)
 
-    def spectral_plot(self, kind: str='indiv', ax: mat_ax.Axes=None, compartments: List[Dict]=None, num_years: int=None,
-                      num_days: int=None, spectrum_kw: Dict=None, plot_kw: Dict=None, power_spectrum: bool=False,
-                      labels: List = None, legend_kw: Dict=None, return_plots: bool=False) \
-            -> Optional[List]:
+    def spectral_plot(self, kind: str='indiv', ax: mat_ax.Axes = None, compartments: Iterable[Dict] = None,
+                      num_years: int = None, num_days: int = None, spectrum_kw: Dict = None, plot_kw: Dict = None,
+                      power_spectrum: bool = False, labels: List = None, legend_kw: Dict = None,
+                      return_plots: bool = False) -> Optional[List]:
 
         """Plot one or more time series from the stored ecosystem
 
@@ -311,6 +286,8 @@ class SinglePlotter(object):
             Arguments to pass to matplotlib
         return_plots
             Return figure handles
+        labels
+            Legend labels
         compartments
             List of compartment dictionaries
 
@@ -355,9 +332,8 @@ class SinglePlotter(object):
             return handles
 
     # plot phase portrait
-    def phase_plot(self, ax: mat_ax.Axes=None, fig: List=None, compartments: List[Dict]=None, num_years: int=None,
-                   num_days: int=None,
-                   plot3d: bool=False, res_phy: bool=False):
+    def phase_plot(self, ax: mat_ax.Axes = None, fig: List = None, compartments: Iterable[Dict] = None,
+                   num_years: int = None, num_days: int = None, plot3d: bool = False, res_phy: bool = False):
 
         """Phase plot from stored ecosystem
 

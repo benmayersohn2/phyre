@@ -13,9 +13,36 @@ from phyre.analysis import analysis as al
 from phyre import ts_funs as f
 from argparse import ArgumentParser
 
-num_years = 80
+num_years = 10
 
-functions = [('species_richness', f.species_richness, {'num_years': num_years, 'mean_amp_thresh': 1})]
+rel_amp_thresh = 0
+mean_amp_thresh = 0
+
+window = 'hamming'
+detrend = 'constant'
+
+# If nperseg = noverlap = None, then this will just be a normal periodogram
+# nperseg = int(50 * c.NUM_DAYS_PER_YEAR)
+# noverlap = nperseg // 2
+nperseg = None
+noverlap = None
+
+spectrum_kw = {'detrend': detrend, 'window': window, 'nperseg': nperseg, 'noverlap': noverlap}
+small_ind = [0, 1, 2]
+large_ind = [3, 4, 5]
+
+functions = [('dom_freq_phy_total', f.dom_freq,
+              {'kind': 'total', 'rel_amp_thresh': rel_amp_thresh,
+               'spectrum_kw': spectrum_kw,
+               'num_years': num_years,
+               'mean_amp_thresh': mean_amp_thresh,
+               'compartments': [{'phy': 'all'}]}),
+             ('dom_freq_phy', f.dom_freq, {'kind': 'indiv', 'rel_amp_thresh': rel_amp_thresh,
+                'spectrum_kw': spectrum_kw,
+                'num_years': num_years,
+                'mean_amp_thresh': mean_amp_thresh,
+                'compartments': [{'phy': 'all'}]})
+             ]
 
 
 def run(args):

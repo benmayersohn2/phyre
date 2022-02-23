@@ -2,26 +2,29 @@
 helpers.py: Helper functions to assist with model execution/analysis
 """
 
-from typing import Dict, Union, Tuple, List, Optional, Callable, Sized, IO
+from typing import Dict, Union, Tuple, List, Optional, Callable, Sized, Iterable
 import numpy as np
 import pandas as pd
 import numpy.ma as ma
 import matplotlib.pyplot as plt
 import json
+from numpy.random import default_rng
 import os
 import ast
+from functools import partial
 from phyre.analysis import analysis as al
 from itertools import product as iter_product
 import copy
-import scipy.integrate as integrate
+from scipy.interpolate import interp1d
+from scipy.signal import butter, sosfilt, freqz
 
 from phyre import constants as c
 from phyre import local_constants as lc
 
 
-def load(name: str, file_type: str, run_type: str, pd_kw: Dict=None, cluster_kw: Dict=None,
-         data_label: str='time_series', data_ext: str=c.DATA_EXT_DEFAULT, err_on_fail: bool=False,
-         details_str: str=None) \
+def load(name: str, file_type: str, run_type: str, pd_kw: Dict = None, cluster_kw: Dict = None,
+         data_label: str = 'time_series', data_ext: str = c.DATA_EXT_DEFAULT, err_on_fail: bool = False,
+         details_str: str = None) \
         -> Union[Dict, pd.DataFrame, np.ndarray]:
 
     """Load params or output data
@@ -98,9 +101,8 @@ def load(name: str, file_type: str, run_type: str, pd_kw: Dict=None, cluster_kw:
                 try:
                     output_part = load_data(output_str, data_ext=data_ext, err_on_fail=err_on_fail)
                     output[int(pos[j]):int(pos[j] + num_samples_per_cluster)] = output_part.tolist()
-                except OSError:
-                    raise
-                except AttributeError:  # output_part is None
+                except:
+                    print(f'Cluster {j} is missing!')
                     output[int(pos[j]):int(pos[j] + num_samples_per_cluster)] = \
                         (c.NAN_VALUE * np.ones((num_samples_per_cluster,))).tolist()
         # load just for a cluster
@@ -114,7 +116,7 @@ def load(name: str, file_type: str, run_type: str, pd_kw: Dict=None, cluster_kw:
 
 
 # load matrix of inputs, for sweep
-def get_sweep_inputs(params_name: str, pd_kw: Dict=None, cluster_kw: Dict=None) -> np.ndarray:
+def get_sweep_inputs(params_name: str, pd_kw: Dict = None, cluster_kw: Dict = None) -> np.ndarray:
 
     """ Get a matrix of sweep inputs using name of parameter set and some keyword arguments
 
@@ -233,7 +235,7 @@ def load_data(output_str: str, data_ext: str=c.DATA_EXT_DEFAULT, err_on_fail: bo
 
     if data_ext == 'npy':
         try:
-            output = np.load(output_str)
+            output = np.load(output_str, allow_pickle=True)
         except FileNotFoundError:
             if err_on_fail:
                 raise Exception('File not found!!')
@@ -310,7 +312,7 @@ def data_from_pandas(df: pd.DataFrame, x_label: str, y_label: str, out_label: st
     return x_mat, y_mat, out_mat
 
 
-def data_to_pandas(name: str, output: np.ndarray, pd_kw: Dict=None, cluster_kw: Dict=None):
+def data_to_pandas(name: str, output: np.ndarray, pd_kw: Dict = None, cluster_kw: Dict = None):
     """ Convert from NumPy array to pandas table
 
         Parameters
@@ -377,9 +379,9 @@ def data_to_pandas(name: str, output: np.ndarray, pd_kw: Dict=None, cluster_kw: 
     return pd.DataFrame.from_dict(data)
 
 
-def save(name: str, file_type: str, run_type: str, output: Union[Dict, np.ndarray], cluster_kw: Dict=None,
-         data_label: str='time_series', functions: List[Tuple[str, Callable, Dict]]=None,
-         data_ext: str=c.DATA_EXT_DEFAULT, gen_hpc_scripts: bool=True, details_str: str=None):
+def save(name: str, file_type: str, run_type: str, output: Union[Dict, np.ndarray], cluster_kw: Dict = None,
+         data_label: str='time_series', functions: List[Tuple[str, Callable, Dict]] = None,
+         data_ext: str=c.DATA_EXT_DEFAULT, gen_hpc_scripts: bool=True, details_str: str = None):
 
     """ Save params, output data, or a run script for a sweep
 
@@ -427,8 +429,8 @@ def save(name: str, file_type: str, run_type: str, output: Union[Dict, np.ndarra
             # Basic bio setup
             # Add num_res, num_zoo, and num_compartments
             num_phy = output['bio'].get('num_phy')
-            num_res = c.NUM_RES
-            num_zoo = c.NUM_ZOO
+            num_res = output['bio'].get('num_res')
+            num_zoo = output['bio'].get('num_zoo')
 
             output['bio']['num_res'] = num_res
             output['bio']['num_zoo'] = num_zoo
@@ -444,13 +446,6 @@ def save(name: str, file_type: str, run_type: str, output: Union[Dict, np.ndarra
                 output['num_days'] = int(output['num_years'] * c.NUM_DAYS_PER_YEAR)
 
             output['t_final'] = output.get('num_days') - 1
-
-            # which is saved: res_phy_makeup_ratio or res_phy_stoich_ratio
-            if output.get('makeup_specified') is None:
-                if output['bio'].get('res_phy_makeup_ratio') is not None:
-                    output['makeup_specified'] = True
-                else:
-                    output['makeup_specified'] = False
 
             # Additional setup
             additional_bio_setup(output, safe_to_save=True)
@@ -607,8 +602,8 @@ def get_output_dir(name: str, file_type: str, run_type: str) -> str:
     return output_dir
 
 
-def get_output_filename(name: str, file_type: str, run_type: str, data_label: str=None,
-                        cluster_kw: Dict=None, data_ext: str=c.DATA_EXT_DEFAULT, details_str: str=None) -> str:
+def get_output_filename(name: str, file_type: str, run_type: str, data_label: str = None,
+                        cluster_kw: Dict = None, data_ext: str=c.DATA_EXT_DEFAULT, details_str: str = None) -> str:
 
     """ Retrieve output filename using parameters specified
 
@@ -686,19 +681,19 @@ def color_cycle(num_colors: int, cmap: str='Set1') -> np.ndarray:
     return plt.get_cmap(cmap)(np.linspace(0, 1, num_colors))
 
 
-def generate_mock_eco_inputs(num_years: int=1) -> Tuple[np.ndarray, Dict, List[Dict]]:
+def generate_mock_eco_inputs(num_years: int=1) -> Tuple[np.ndarray, Dict, Iterable[Dict]]:
     """ Create sample outputs of ecosystem run without running model
         1 year of output, one resource, one nutrient, no zooplankton.
         Primarily used for testing functions
 
         Returns
         ----------
-        Tuple[Sized, Dict, List[Dict]]
+        Tuple[Sized, Dict, Iterable[Dict]]
             Returns time array, dict of parameters and list of compartment dicts
     """
 
     compartments = [{'phy': 'all'}]
-    params = {'bio': {'num_res': c.NUM_RES, 'num_phy': 1, 'num_zoo': c.NUM_ZOO}, 'dt_save': 1, 'num_years': num_years}
+    params = {'bio': {'num_res': 1, 'num_phy': 1, 'num_zoo': 1}, 'dt_save': 1, 'num_years': num_years}
     t = np.linspace(0, int(num_years * c.NUM_DAYS_PER_YEAR - 1), int(num_years * c.NUM_DAYS_PER_YEAR))
     return t, params, compartments
 
@@ -715,7 +710,7 @@ def build_mock_eco_output(t, params):
     return np.array(the_output)
 
 
-def eco_indices(index_key: str, bio: Dict=None, params: Dict=None) -> List:
+def eco_indices(index_key: str, bio: Dict = None, params: Dict = None, as_list: bool = True) -> Union[List, np.ndarray]:
     """ Returns corresponding indices of a compartment in ecosystem output
 
         Parameters
@@ -726,6 +721,8 @@ def eco_indices(index_key: str, bio: Dict=None, params: Dict=None) -> List:
             Dict of BIO params. We only need 'num_phy', 'num_res', and 'num_zoo'
         params
             Dict of ALL params. If specified, bio dict will be extracted using params.get('bio')
+        as_list
+            Return indices as a list (True) or as numpy array (False)
 
         Returns
         ----------
@@ -740,13 +737,15 @@ def eco_indices(index_key: str, bio: Dict=None, params: Dict=None) -> List:
     num_res = bio.get('num_res')
     num_zoo = bio.get('num_zoo')
 
+    out_list = None
     if index_key == 'phy':
-        return list(range(num_phy))
+        out_list = list(range(num_phy))
     elif index_key == 'res':
-        return list(range(num_phy, num_phy + num_res))
+        out_list = list(range(num_phy, num_phy + num_res))
     elif index_key == 'zoo':
-        return list(range(num_phy + num_res,
-                          num_phy + num_res + num_zoo))
+        out_list = list(range(num_phy + num_res, num_phy + num_res + num_zoo))
+
+    return out_list if as_list else np.array(out_list)
 
 
 def get_last_n_days(model_output: np.ndarray, num_days_end: int) -> np.ndarray:
@@ -816,7 +815,8 @@ def convert_lists_to_numpy(params: Dict):
     for key in params:
         if isinstance(params[key], (np.ndarray, tuple, list)):
             try:
-                params.update({key: np.asarray(params[key])})
+                if key != 'pp':
+                    params.update({key: np.asarray(params[key])})
             except ValueError:  # if we get a value error, skip it
                 pass
         elif isinstance(params[key], dict):  # apply this to inner dicts
@@ -845,7 +845,7 @@ def convert_numpy_to_lists(params: Dict):
             params.update({key: float(params[key])})
 
 
-def get_file_num(file_type: str, data_label: str='time_series', cluster_kw: Dict=None, details_str: str=None) -> str:
+def get_file_num(file_type: str, data_label: str='time_series', cluster_kw: Dict = None, details_str: str = None) -> str:
 
     """ String of details about particular file we're trying to import/export.
 
@@ -1025,8 +1025,8 @@ def filter_df(df: pd.DataFrame, cond_func: Callable) -> Tuple[pd.DataFrame, Tupl
     return df, tuple(good_labels)
 
 
-def restrict_ts(eco: np.ndarray, pp: Dict, compartments: List[Dict]=None, num_years: int=None,
-                num_days: int=None,
+def restrict_ts(eco: np.ndarray, pp: Dict, compartments: Iterable[Dict] = None, num_years: int = None,
+                num_days: int = None,
                 kind: str='indiv') -> np.ndarray:
 
     """ Restrict full eco output time series by compartments and years
@@ -1053,7 +1053,10 @@ def restrict_ts(eco: np.ndarray, pp: Dict, compartments: List[Dict]=None, num_ye
     """
 
     if kind == 'shannon':
-        return al.shannon_ent_rel(eco, pp, num_years=num_years, num_days=num_days)
+        phy_indices = None
+        if compartments is not None:
+            phy_indices = [x for x in compartments if 'phy' in x][0]['phy']
+        return al.shannon_ent_rel(eco, pp, num_years=num_years, num_days=num_days, phy_indices=phy_indices)
 
     out = np.array(eco)
     if num_years is not None:
@@ -1070,7 +1073,7 @@ def restrict_ts(eco: np.ndarray, pp: Dict, compartments: List[Dict]=None, num_ye
     return np.sum(out, axis=0)
 
 
-def keys_from_dict_list(compartments: List[Dict]) -> List:
+def keys_from_dict_list(compartments: Iterable[Dict]) -> List:
     """ Take list of dictionary entries and return just the keys in a list
 
         Parameters
@@ -1091,7 +1094,7 @@ def keys_from_dict_list(compartments: List[Dict]) -> List:
     return keys
 
 
-def all_eco_compartments(params: Dict) -> List[Dict]:
+def all_eco_compartments(params: Dict) -> Iterable[Dict]:
     """ Get a list of dictionaries, where the key is a class of compartments, and the value is a list from 0 to the
         number of compartments in that class
 
@@ -1102,7 +1105,7 @@ def all_eco_compartments(params: Dict) -> List[Dict]:
 
         Returns
         ----------
-        List[Dict]
+        Iterable[Dict]
             The list of dictionaries
     """
 
@@ -1115,7 +1118,7 @@ def all_eco_compartments(params: Dict) -> List[Dict]:
 
 
 # build list of legend labels from compartments
-def get_name_list(params: Dict, compartments: List[Dict]=None, for_plot=True) -> List:
+def get_name_list(params: Dict, compartments: Iterable[Dict] = None, for_plot=True) -> List:
 
     """ Get a list of the short names of all compartments, for plotting (e.g. ['P1', 'P2', 'R1'])
 
@@ -1139,7 +1142,7 @@ def get_name_list(params: Dict, compartments: List[Dict]=None, for_plot=True) ->
                             compartments=compartments)
 
 
-def compartments_map(params: Dict, func: Callable, compartments: List[Dict]=None) -> List:
+def compartments_map(params: Dict, func: Callable, compartments: Iterable[Dict] = None) -> List:
     """ takes a lambda function of key, index, returns list
 
         Parameters
@@ -1176,7 +1179,7 @@ def compartments_map(params: Dict, func: Callable, compartments: List[Dict]=None
     return the_list
 
 
-def num_compartments_selected(params: Dict, compartments: List[Dict]=None) -> int:
+def num_compartments_selected(params: Dict, compartments: Iterable[Dict] = None) -> int:
     """Returns all the indices of the specified compartments in the ecosystem
 
         Parameters
@@ -1195,7 +1198,7 @@ def num_compartments_selected(params: Dict, compartments: List[Dict]=None) -> in
     return len(all_compartment_indices(params, compartments=compartments))
 
 
-def all_compartment_indices(params: Dict, compartments: List[Dict]=None) -> List:
+def all_compartment_indices(params: Dict, compartments: Iterable[Dict] = None) -> List:
     """Returns all the indices of the specified compartments in the ecosystem
 
         Parameters
@@ -1217,9 +1220,24 @@ def all_compartment_indices(params: Dict, compartments: List[Dict]=None) -> List
     # get list of indices specified in compartments
     return compartments_map(params, chosen_index, compartments=compartments)
 
+# Convenience functions for calculating ml index
 
-def get_turnover_index(t: float, turnover_index: Optional[int], ramp_lengths: np.ndarray, ramp_times: np.ndarray) \
-        -> int:
+# Is `s` list-like? Useful for vectorization
+def is_listlike(s):
+    return isinstance(s, (set, list, tuple, np.ndarray, pd.Series, pd.Index))
+
+
+def year_wrap(var):
+    return var % c.NUM_DAYS_PER_YEAR
+
+
+# Returns a bool: True if we restart the year
+def time_wraps(var):
+    return year_wrap(var) != var
+
+
+def get_ml_index(t: float, ramp_lengths: np.ndarray = c.ML_RAMP_LENGTHS_DEFAULT,
+                 ramp_times: np.ndarray = c.ML_RAMP_TIMES_DEFAULT) -> int:
 
     """Returns current index of turnover rate
 
@@ -1227,8 +1245,6 @@ def get_turnover_index(t: float, turnover_index: Optional[int], ramp_lengths: np
         ----------
         t
             current time
-        turnover_index
-            current value of turnover_index; set this to None if we want to calculate it ourselves
         ramp_lengths
             how long do we ramp up and down?
         ramp_times
@@ -1241,37 +1257,80 @@ def get_turnover_index(t: float, turnover_index: Optional[int], ramp_lengths: np
             The turnover index we're currently on
     """
 
-    # if turnover unspecified, we calculate it ourselves
+    t_mod = year_wrap(t)
 
-    if turnover_index is None:
+    # MAXIMUM
+    # If we're between the end of the second ramp and the start of the first
+    max_bool = year_wrap(int(ramp_times[1] + ramp_lengths[1])) <= t_mod <= ramp_times[0]
+    # Same as above, in the case that second ramp doesn't wrap into the new year
+    max_bool2 = (t_mod <= ramp_times[0]) or (t_mod >= ramp_times[1] + ramp_lengths[1])
+    max_bool2 = max_bool2 and (not time_wraps(ramp_times[1] + ramp_lengths[1]))
+    if max_bool or max_bool2:
+        return 0
 
-        def year_wrap(var):
-            return var % c.NUM_DAYS_PER_YEAR
+    # SHOAL (concentrates predators)
+    if ramp_times[0] <= t_mod <= ramp_times[0] + ramp_lengths[0]:
+        return 1
 
-        def time_wraps(var):
-            return year_wrap(var) != var
+    # MINIMUM
+    if ramp_times[0] + ramp_lengths[0] <= t_mod <= ramp_times[1]:
+        return 2
 
-        t_mod = year_wrap(t)
+    # DEEPEN (dilutes nutrient and phyto)
+    return 3
 
-        # MAXIMUM
-        if year_wrap(int(ramp_times[1] + ramp_lengths[1])) <= t_mod <= ramp_times[0] or (
-                (not time_wraps(ramp_times[1] + ramp_lengths[1])) and
-                (t_mod <= ramp_times[0] or t_mod >= ramp_times[1] + ramp_lengths[1])):
-            return 0
 
-        # SHOAL (concentrates predators)
-        if ramp_times[0] <= t_mod <= ramp_times[0] + ramp_lengths[0]:
-            return 1
+def ml_profile(low_val: float = 0, high_val: float = 1, phase_shift=0,
+               mixed_layer_ramp_lengths: np.ndarray = c.ML_RAMP_LENGTHS_DEFAULT,
+               mixed_layer_ramp_times: np.ndarray = c.ML_RAMP_TIMES_DEFAULT,
+               t: Union[float, np.ndarray] = None):
 
-        # MINIMUM
-        if ramp_times[0] + ramp_lengths[0] <= t_mod <= ramp_times[1]:
-            return 2
+    if t is None:
+        t = np.linspace(0, c.NUM_DAYS_PER_YEAR - 1, int(c.NUM_DAYS_PER_YEAR))
+    if is_listlike(t):
+        f = partial(ml_profile, low_val=low_val, high_val=high_val, phase_shift=phase_shift,
+                    mixed_layer_ramp_lengths=mixed_layer_ramp_lengths,
+                    mixed_layer_ramp_times=mixed_layer_ramp_times)
+        return np.array([f(t=x) for x in t])
 
-        # DEEPEN (dilutes nutrient and phyto)
-        return 3
+    extrema = np.array([low_val, high_val])
 
-    # otherwise, use value specified
-    return turnover_index
+    def year_wrap(var):
+        return var % c.NUM_DAYS_PER_YEAR
+
+    t_mod = year_wrap(t + phase_shift)
+
+    index = get_ml_index(t=t+phase_shift, ramp_lengths=mixed_layer_ramp_lengths, ramp_times=mixed_layer_ramp_times)
+
+    ramp_lengths = mixed_layer_ramp_lengths
+    ramp_times = mixed_layer_ramp_times
+
+    if index == 0:
+        return extrema[1]
+
+    if index == 1:
+        return extrema[1] + (t_mod - ramp_times[0]) / ramp_lengths[0] * \
+               (extrema[0] - extrema[1])
+
+    if index == 2:
+        return extrema[0]
+
+    # otherwise, index == 3
+    if year_wrap(int(ramp_times[1])) > t_mod:
+        return extrema[0] + (t_mod + c.NUM_DAYS_PER_YEAR - ramp_times[1]) / ramp_lengths[1] \
+               * (extrema[1] - extrema[0])
+
+    return extrema[0] + (t_mod - ramp_times[1]) / ramp_lengths[1] * (extrema[1] - extrema[0])
+
+
+# Growth rate factor from mixed layer profile
+def light_profile(low_val=0, high_val=1, **kwargs):
+    light = np.exp(-ml_profile(low_val=0, high_val=1, **kwargs))
+    low_light_val = np.exp(-1)
+    high_light_val = 1
+    # light = 1 - ml_profile(low_val=0, high_val=1, **kwargs)
+    # low_light_val, high_light_val = low_val, high_val
+    return low_val + (high_val - low_val) * (light - low_light_val) / (high_light_val - low_light_val)
 
 
 def get_unique_vals(eco: np.ndarray, t: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -1300,19 +1359,36 @@ def get_unique_vals(eco: np.ndarray, t: np.ndarray) -> Tuple[np.ndarray, np.ndar
 
 ####################################
 
-def generate_noise(t_final: float, t0: float, amp: float, cutoff_freq: Union[float, List]=None,
-                   filter_type: str=None) -> np.ndarray:
+# NOISE
+
+# filter_type : 'highpass', 'bandpass', or 'lowpass'
+def butter_gen(cutoff, filter_type='bandpass', order=5):
+    sos = butter(order, cutoff, btype=filter_type, output='sos')
+    return sos
+
+def butter_filter(data, cutoff, filter_type='bandpass', order=5):
+    sos = butter_gen(cutoff, filter_type=filter_type, order=order)
+    y = sosfilt(sos, data)
+    return y
+
+# If time domain, use Butterworth filter. Otherwise use Fourier cutoffs
+def generate_noise(t_final: float, t0: float = 0, amp: float = 1.0, cutoff_freq: Union[float, List] = None,
+                   filter_type: str = None, uniform: bool = False, additive: bool = False, seed: bool = None,
+                   domain: str ='frequency') -> np.ndarray:
     """creates a white noise filtered at the chosen frequencies
 
         Parameters
         ----------
         t_final : last timestep of the run (in days)
         t0 : first timestep (in days, =0 to start on 01/01)
-        amp : amplitude of the noise
-        cutoff_freq : either cutoff frequency (lowpass/highpass) or list (bandpass and bandpass_cr)
-        filter_type : 'highpass', 'bandpass', 'bandpass_cr', or 'lowpass'. If not specified, just white noise.
-            If 'bandpass_cr', then freq is [center, window_radius].
+        amp : amplitude of the noise (1.0 by default)
+        cutoff_freq : either cutoff frequency (lowpass/highpass) or list (bandpass)
+        filter_type : 'highpass', 'bandpass', 'lowpass'. If not specified, just white noise.
             if 'bandpass', then freq is [left, right]
+        uniform : uniform distribution? (gaussian by default)
+        additive : Additive noise?
+        seed: Seed random number generator for reproducible results
+        domain: Filter white noise in frequency or time domain?
 
         Returns
         ----------
@@ -1321,25 +1397,43 @@ def generate_noise(t_final: float, t0: float, amp: float, cutoff_freq: Union[flo
 
     """
 
+    if additive is None:
+        additive = False
+
     time = np.arange(t0, t_final + 1, 1)
-    white_noise = amp * np.random.normal(0, 1, time.shape)
-    noise_freq = np.fft.rfftfreq(white_noise.size, d=time[1] - time[0])
-    f_noise = np.fft.rfft(white_noise)
 
-    cut_f_noise = f_noise.copy()
+    print(len(time))
 
-    if filter_type == 'bandpass':
-        cut_f_noise[(noise_freq < cutoff_freq[0])] = 0
-        cut_f_noise[(noise_freq > cutoff_freq[1])] = 0
-    if filter_type == 'bandpass_cr':
-        cut_f_noise[(noise_freq < cutoff_freq[0] - cutoff_freq[1])] = 0
-        cut_f_noise[(noise_freq > cutoff_freq[0] + cutoff_freq[1])] = 0
-    if filter_type == 'highpass':
-        cut_f_noise[(noise_freq < cutoff_freq)] = 0
-    if filter_type == 'lowpass':
-        cut_f_noise[(noise_freq > cutoff_freq)] = 0
+    rng = default_rng(seed=seed)
 
-    return np.fft.irfft(cut_f_noise)  # inverse transform
+    if uniform:
+        if additive:
+            white_noise = amp * rng.uniform(-1, 1, time.shape[0])
+        else:
+            white_noise = rng.uniform(1-amp, 1+amp, time.shape[0])
+    else:
+        if additive:
+            white_noise = amp * rng.normal(0, 1, time.shape[0])
+        else:
+            white_noise = 1 + amp * rng.normal(0, 1, time.shape[0])
+
+    if domain == 'time':
+        return butter_filter(white_noise, cutoff_freq, filter_type=filter_type)
+    else:
+        noise_freq = np.fft.rfftfreq(white_noise.size, d=time[1] - time[0])
+        f_noise = np.fft.rfft(white_noise)
+
+        cut_f_noise = f_noise.copy()
+
+        if filter_type == 'bandpass':
+            cut_f_noise[(noise_freq < cutoff_freq[0])] = 0
+            cut_f_noise[(noise_freq > cutoff_freq[1])] = 0
+        if filter_type == 'lowpass':
+            cut_f_noise[(noise_freq > cutoff_freq)] = 0
+        if filter_type == 'highpass':
+            cut_f_noise[(noise_freq < cutoff_freq)] = 0
+
+        return np.fft.irfft(cut_f_noise, n=len(time))  # inverse transform
 
 #####################################################
 
@@ -1395,7 +1489,6 @@ def additional_bio_setup(pp: Dict, pop_values: bool=False, safe_to_save: bool=Fa
     num_res = bb.get('num_res')
     num_phy = bb.get('num_phy')
     num_zoo = bb.get('num_zoo')
-    include_zoo = bb.get('include_zoo') if bb.get('include_zoo') is not None else False
 
     # if num_years not specified, compute from num_days
     if not pp.get('num_years') and pp.get('num_days'):
@@ -1403,114 +1496,52 @@ def additional_bio_setup(pp: Dict, pop_values: bool=False, safe_to_save: bool=Fa
     else:
         pp['num_days'] = int(pp['num_years'] * c.NUM_DAYS_PER_YEAR)
 
-    phy_small_indices = bb.get('phy_small_indices')
-    phy_large_indices = bb.get('phy_large_indices')
+    # Make turnover series a function
+    # Only do this if we're not saving
+    """
+    if bb.get('turnover_series') is not None and not safe_to_save:
+        t = np.linspace(pp['t0'], pp['t_final'] + 1, pp['t_final'] + 2)
+        pp['bio']['turnover_series'] = interp1d(t, pp['bio']['turnover_series'])
 
-    num_dict = {'num_phy': num_phy, 'num_res': num_res, 'num_zoo': num_zoo}
-    phy_indices = eco_indices('phy', num_dict)
+    if bb.get('light_series') is not None and not safe_to_save:
+        t = np.linspace(pp['t0'], pp['t_final'] + 1, pp['t_final'] + 2)
+        pp['bio']['light_series'] = interp1d(t, pp['bio']['light_series'])
+    """
 
-    # all phyto are large if nothing is specified
-    if phy_small_indices is None and phy_large_indices is None:
-        pp['bio']['phy_large_indices'] = np.array(phy_indices)
-        phy_large_indices = np.array(phy_indices)
-
-    # Noise generation
-    if bb.get('noise_amp') is not None and not np.isclose(bb['noise_amp'], 0):
-        amp = bb.get('noise_amp')
+    if bb.get('noise_sd') is not None:
+        amp = bb.get('noise_sd')
         freq = bb.get('noise_freq')
-        filter_type = bb.get('noise_filter')
+        noise_filter = bb.get('noise_filter')
+        uniform = bb.get('noise_uniform')
+        noise_additive = bb.get('noise_additive')
 
         # compute noise
         pp['bio']['noise'] = generate_noise(pp['t_final'], pp['t0'], amp, cutoff_freq=freq,
-                                            filter_type=filter_type)
+                                            filter_type=noise_filter, uniform=uniform, additive=noise_additive)
+
+        for key in ['noise_freq', 'noise_filter', 'noise_uniform']:
+            if key in bb:
+                del bb[key]
     else:
         pp['bio']['noise'] = None
 
-    res_phy_makeup_ratio = bb.get('res_phy_makeup_ratio')
-
-    res_phy_stoich_ratio = None
-    silicate_off = bb.get('silicate_off') if bb.get('silicate_off') is not None else True
-    single_nit = bb.get('single_nit') if bb.get('single_nit') is not None else False
-
-    # set stoich from makeup
-    if pp.get('makeup_specified') in (True, 1):
-
-        # no silicate in small phyto
-        if phy_small_indices is not None:
-            res_phy_makeup_ratio[c.SIL_INDEX_SHORT, phy_small_indices] = 0
-
-        res_phy_stoich_ratio = np.concatenate(([np.array(res_phy_makeup_ratio)[c.NIT_INDEX_SHORT, :]],
-                                               res_phy_makeup_ratio), axis=0)
-
-        pp['bio']['res_phy_stoich_ratio'] = res_phy_stoich_ratio
-
-    # set makeup from stoich
-    if pp.get('makeup_specified') in (0, False):
-        res_phy_stoich_ratio = bb.get('res_phy_stoich_ratio')
-
-        # no silicate in small phyto
-        if phy_small_indices is not None:
-            res_phy_stoich_ratio[c.SIL_INDEX, phy_small_indices] = 0
-
-        res_phy_makeup_ratio = np.array(res_phy_stoich_ratio[c.NH4_INDEX:, :])
-
-        pp['bio']['res_phy_makeup_ratio'] = res_phy_makeup_ratio
-
-    if single_nit:
-        pp['bio']['res_phy_stoich_ratio'][c.NH4_INDEX, :] = 0  # no NH4 contributions to growth
-        pp['bio']['no3_inhibit_decay'] = 0  # no nitrate inhibition
-
-    if silicate_off:
-        pp['bio']['res_phy_makeup_ratio'][c.SIL_INDEX_SHORT, :] = 0
-        pp['bio']['res_phy_stoich_ratio'][c.SIL_INDEX, :] = 0
+    res_phy_stoich_ratio = bb.get('res_phy_stoich_ratio')
 
     res_phy_remin_frac = np.array(res_phy_stoich_ratio)
 
-    if not single_nit:
-        res_phy_remin_frac[c.NO3_INDEX, :] = 0  # no nitrate restoring
-
     pp['bio']['res_phy_remin_frac'] = res_phy_remin_frac
-
-    if phy_small_indices is not None:
-        pp['bio']['phy_growth_sat'][c.SIL_INDEX, phy_small_indices] = np.nan
-    if silicate_off:
-        pp['bio']['phy_growth_sat'][c.SIL_INDEX, :] = np.nan
 
     ######################################################################
 
-    # ZOOPLANKTON
-
-    # zoo_prey_pref is structured as prey x predator
-    # (num_phy + 1) x 2 matrix. The last row is small zooplankton, prey for large zooplankton
+    # Ensure phytoplankton grouping is consistent
+    if bb.get('include_zoo'):
+        pref_shape = np.shape(bb.get('zoo_prey_pref'))
+        assert pref_shape[0] == bb.get('num_zoo') + bb.get('num_phy')
+        assert pref_shape[-1] == bb.get('num_zoo')
 
     if bb.get('res_forcing_amps') is None and bb.get('res_forcing_scale') is not None:
         pp['bio']['res_forcing_amps'] = get_res_amps_from_scale(bb.get('res_forcing_scale'),
-                                                                stoich_ratio=res_phy_stoich_ratio,
-                                                                phy_large_indices=pp['bio']['phy_large_indices'])
-
-    if include_zoo:
-        zoo_high_pref = bb.get('zoo_high_pref')
-        zoo_low_pref = bb.get('zoo_low_pref')
-        zoo_zoo_pref = bb.get('zoo_zoo_pref')
-
-        if isinstance(zoo_low_pref, float):
-            zoo_low_pref = zoo_low_pref * np.ones(2,)
-        if isinstance(zoo_high_pref, float):
-            zoo_high_pref = zoo_high_pref * np.ones(2, )
-
-        zoo_prey_pref = np.zeros((num_phy + 1, num_zoo))
-
-        if phy_large_indices is not None:
-            zoo_prey_pref[phy_large_indices, 0] = zoo_low_pref[0]
-            zoo_prey_pref[phy_large_indices, 1] = zoo_high_pref[1]
-
-        if phy_small_indices is not None:
-            zoo_prey_pref[phy_small_indices, 0] = zoo_high_pref[0]
-            zoo_prey_pref[phy_small_indices, 1] = zoo_low_pref[1]
-
-        zoo_prey_pref[-1, 1] = zoo_zoo_pref
-
-        pp['bio']['zoo_prey_pref'] = zoo_prey_pref
+                                                                res_phy_stoich_ratio=res_phy_stoich_ratio)
 
     # pop ALL parameters we won't need for integration
     if pop_values:
@@ -1570,24 +1601,14 @@ def debug_dict_setup(bio):
     return debug_dict
 
 
-def get_res_amps_from_scale(scale, stoich_ratio=None, makeup_ratio=None, phy_large_indices=None):
-    if makeup_ratio is not None:
-        res_phy_stoich_ratio = np.concatenate(([np.array(makeup_ratio)[c.NIT_INDEX_SHORT, :]],
-                                               makeup_ratio), axis=0)
-    else:
-        res_phy_stoich_ratio = np.array(stoich_ratio)
+def get_res_amps_from_scale(scale, res_phy_stoich_ratio=None, makeup_ratio=None):
     num_res = res_phy_stoich_ratio.shape[0]
     amps = scale * np.ones(num_res,)
-    amps[c.NH4_INDEX] = 0
 
     conversion = np.zeros((num_res,))
 
     for j in range(num_res):
-        if j == c.SIL_INDEX and phy_large_indices is not None:
-            conversion[j] = np.mean(res_phy_stoich_ratio[j, phy_large_indices]) / \
-                            np.mean(res_phy_stoich_ratio[0, phy_large_indices])
-        else:
-            conversion[j] = np.mean(res_phy_stoich_ratio[j, :]) / np.mean(res_phy_stoich_ratio[0, :])
+        conversion[j] = np.mean(res_phy_stoich_ratio[j, :]) / np.mean(res_phy_stoich_ratio[0, :])
 
     amps = np.multiply(amps, conversion)  # in nutrient units
 

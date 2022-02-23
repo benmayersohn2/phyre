@@ -14,6 +14,8 @@ from phyre import helpers
 import numpy as np
 from phyre import constants as c
 
+plt.switch_backend('Qt5Agg')
+
 ########################################################################
 
 params_name = 'example'

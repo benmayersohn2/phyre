@@ -1,6 +1,6 @@
 ## PHYRE
 
-![single example time series plot](plots/single_example.png)
+![single example time series plot](assets/single_example.png)
 
 ### What is PHYRE?
 
