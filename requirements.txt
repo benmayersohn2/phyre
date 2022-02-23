@@ -3,6 +3,5 @@ mpi4py==3.0.3
 numpy==1.19.4
 pandas==1.1.4
 scipy==1.5.4
-sdeint==0.2.1
 seaborn==0.9.0
 git+ssh://github.com/mabelcalim/waipy.git@9b396cb216cbb2e3e0e4fc55c0dd6b6718768d56
