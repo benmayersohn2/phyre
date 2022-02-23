@@ -2,6 +2,7 @@
 !requirements.txt
 !.gitignore
 !phyre/
+!assets/
 !apply_functions.py
 !single_example.py
 !single_example_noise.py
