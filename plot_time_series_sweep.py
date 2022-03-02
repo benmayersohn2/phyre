@@ -10,6 +10,8 @@ from phyre.analysis.plot_single import SinglePlotter
 import seaborn as sns
 from phyre import constants as c
 
+plt.switch_backend('Qt5Agg')
+
 ########################################################################
 
 num_clusters = 2
@@ -62,7 +64,7 @@ sns.set_context('paper')
 sns.set_style('white')
 
 plotter.time_series_plot(kind=kind, legend_kw=legend_kw, color_kw=color_kw, compartments=compartments,
-                         num_years=num_years, nit_combine=True, ax=ax)
+                         num_years=num_years, ax=ax)
 
 num_steps = 2 * num_years
 xlist = np.linspace(num_years_simulation - num_years, num_years_simulation, num_steps)

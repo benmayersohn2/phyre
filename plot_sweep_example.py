@@ -8,6 +8,8 @@ This is expected due to the top-down control of predators on phytoplankton.
 import matplotlib.pyplot as plt
 import phyre.helpers as helpers
 
+plt.switch_backend('Qt5Agg')
+
 ########################################################################
 
 params_name = 'example'
@@ -34,6 +36,5 @@ ax.set_title('Average Total P Biomass vs. Z Mortality Rate')
 ax.set_xlabel('Z Mortality Rate')
 ax.set_ylabel('Avg P')
 
-plt.savefig('plots/sweep_example.pdf', bbox_inches='tight', padding=0)
-
+plt.savefig('plots/sweep_example.pdf', bbox_inches='tight', pad_inches=0)
 plt.show()

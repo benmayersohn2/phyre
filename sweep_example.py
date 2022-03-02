@@ -5,7 +5,6 @@ single_multi.py: Example of a single run that comes with PHYRE model.
 import numpy as np
 
 from phyre import helpers
-from phyre.model import single
 import os
 
 ########################################################################
@@ -15,6 +14,7 @@ import os
 params_name = os.path.basename(__file__)[os.path.basename(__file__).find('_')+1:-3]
 
 res_forcing_scale = 18.1  # in nitrogen units
+turnover_rate = 0.04
 
 debug = False
 include_zoo = True
@@ -24,22 +24,29 @@ include_zoo = True
 # TIME & DATA STORAGE
 
 # Time parameters
-num_years = 20
+num_years = 100
+
+# how many of each compartment?
+num_phy = 6
+num_zoo = 2
+num_res = 3
 
 ########################################################################
 
 # PHYTOPLANKTON + RESOURCES
 
-# how many phytoplankton?
-num_phy = 6
-num_zoo = 2
-num_res = 3
-
+# Max growth rate
 small_rate = 1.
 large_rate = 2.
-phy_growth_rate_max = 0.306 * np.array([small_rate, small_rate, small_rate, large_rate, large_rate, large_rate])
+phy_growth_rate_max = 0.306 * np.ones(num_phy,)
+phy_growth_rate_max[:int(num_phy/2)] *= small_rate
+phy_growth_rate_max[int(num_phy/2):] *= large_rate
+
+phy_mort_rate = 0.1
 
 #############################################################
+
+# STOICHIOMETRY
 
 large_ent = [(0, 0), (1, 1), (2, 2), (0, 3), (1, 4), (2, 5)]
 mid_ent = [(0, 1), (1, 2), (2, 0), (0, 4), (1, 5), (2, 3)]
@@ -125,14 +132,9 @@ for ent in small_ent:
 
 ########################################################################
 
-phy_mort_rate = 0.1
-
-########################################################################
-
 # ZOOPLANKTON
 
-zoo_grazing_rate_max = (1.0 * np.array([1.5, 0.5])).tolist()
-zoo_mort_rate = [0.015, 0.015]
+zoo_grazing_rate_max = (1.15 * np.array([1.5, 0.5])).tolist()
 zoo_grazing_sat = [10., 10.]
 zoo_slop_feed = [1., 1.]
 
@@ -147,11 +149,11 @@ zoo_0 = 1e-2
 
 # Bio parameters go directly into rhs_build function
 bio = {'zoo_prey_pref': zoo_prey_pref, 'zoo_slop_feed': zoo_slop_feed,
-       'num_zoo': num_zoo, 'num_res': num_res,
+       'num_zoo': num_zoo, 'num_res': num_res, 'turnover_rate': turnover_rate,
        'res_phy_stoich_ratio': res_phy_stoich_ratio,
        'res_forcing_scale': res_forcing_scale,
        'phy_growth_rate_max': phy_growth_rate_max, 'phy_growth_sat': phy_growth_sat,
-       'phy_mort_rate': phy_mort_rate, 'zoo_mort_rate': zoo_mort_rate,
+       'phy_mort_rate': phy_mort_rate,
        'zoo_grazing_rate_max': zoo_grazing_rate_max, 'zoo_grazing_sat': zoo_grazing_sat,
        'num_phy': num_phy, 'include_zoo': include_zoo
        }
@@ -161,15 +163,8 @@ params = {'bio': bio, 'phy_0': phy_0, 'res_0': res_0, 'zoo_0': zoo_0, 'num_years
 
 ########################################################################
 
-num_clusters = 1
-
-turnover_rate_range = [0.04]
-turnover_radius_range = [0]
-turnover_period_range = [720]
-
-sweep_params = [['turnover_rate', None, turnover_rate_range],
-                ['turnover_radius', None, turnover_radius_range],
-                ['turnover_period', None, turnover_period_range]]
+num_clusters = 2
+sweep_params = [['zoo_mort_rate', None, np.linspace(0.015, 0.5, 4).tolist()]]
 
 prod = 1
 for param in sweep_params:

@@ -18,6 +18,8 @@ from phyre import constants as c
 import numpy as np
 from matplotlib.ticker import FormatStrFormatter
 
+plt.switch_backend('Qt5Agg')
+
 ########################################################################
 
 params_name = 'example'
@@ -61,8 +63,8 @@ t_y = np.linspace(0, num_years_ts, int(num_years_ts * c.NUM_DAYS_PER_YEAR)) + nu
 
 # individuals
 num_phy = plotter.params.get('bio').get('num_phy')
-num_res = c.NUM_RES
-num_zoo = c.NUM_ZOO
+num_res = 3
+num_zoo = 2
 
 phy_indices = [3]
 phy_labels = ['P$^l_1$', 'Total P']
@@ -145,7 +147,7 @@ ax[2].set_xticklabels(((xlist-xlist[0]) * c.NUM_DAYS_PER_YEAR).astype(int))
 
 num_years_spectrum = 30
 
-spectrum_kw = {'detrend': 'constant', 'sort': 'freqs', 'normalize': True}
+spectrum_kw = {'detrend': 'constant', 'sort': 'freqs', 'normalize': True, 'window': 'hamming', 'thres': 1e-12}
 alpha = 0.6
 phy_freqs, phy_amps = al.filtered_spectrum(eco, params, num_years=num_years_spectrum,
                                            compartments=[{'phy': phy_indices}], **spectrum_kw)
@@ -222,6 +224,5 @@ for i, label in enumerate(('A', 'B', 'C', 'D', 'E', 'F')):
     ax[i].text(0.06, 1.14, label, transform=ax[i].transAxes,
                fontsize=16, fontweight='bold', va='top', ha='right')
 
-plt.savefig('plots/single_example_multiplot.pdf'.format(params_name), bbox_inches='tight')
-
+plt.savefig('plots/single_example_multiplot.pdf', bbox_inches='tight')
 plt.show()

@@ -108,8 +108,6 @@ class SinglePlotter(object):
             Returns lines associated with plot object
         res_to_carbon
             Convert resources to carbon units
-        nit_combine
-            Combine nitrate and ammonium?
         phy_index
             If we're plotting resource, which phyto compartment(s) to use to convert to carbon units
         plot_kw

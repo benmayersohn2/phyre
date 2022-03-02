@@ -14,6 +14,8 @@ from phyre import helpers
 import numpy as np
 from phyre import constants as c
 
+plt.switch_backend('Qt5Agg')
+
 ########################################################################
 
 params_name = 'example_noise'
@@ -55,5 +57,5 @@ ax.set_xticklabels(((xlist-xlist[0]) * c.NUM_DAYS_PER_YEAR).astype(int))
 ax.set_xlabel('Time (Days)', fontsize=12)
 ax.set_ylabel('Concentrations', fontsize=12)
 
-plt.savefig('plots/single_example_noise.pdf', bbox_inches='tight', padding=0)
+plt.savefig('plots/single_example_noise.pdf', bbox_inches='tight', pad_inches=0)
 plt.show()
