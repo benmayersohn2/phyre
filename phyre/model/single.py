@@ -11,12 +11,11 @@ from phyre import constants as c
 import copy
 
 
-def run(params_name: str=None, params: Dict=None, method: str='odeint', ts_label: str='time_series',
-        details_str: str=None,
-        return_eco: bool=False, save_eco: bool=True, data_ext: str=c.DATA_EXT_DEFAULT,
-        functions: List[Tuple[str, Callable, Dict]]=None, debug: bool=False,
-        odeint_kw: Dict = None)-> \
-        Optional[Union[np.ndarray, tuple]]:
+def run(params_name: str = None, params: Dict = None, method: str = 'odeint', ts_label: str='time_series',
+        details_str: str = None,
+        return_eco: bool=False, save_eco: bool=True, data_ext: str = c.DATA_EXT_DEFAULT,
+        functions: List[Tuple[str, Callable, Dict]] = None, debug: bool = False,
+        odeint_kw: Dict = None) -> Optional[Union[np.ndarray, tuple]]:
 
     """Execute a single run of the model for the parameter set specified
 
@@ -98,6 +97,7 @@ def run(params_name: str=None, params: Dict=None, method: str='odeint', ts_label
         helpers.save(params_name, 'debug', 'single', output=dd)
 
     if np.isnan(eco).any():
+        print('NaN values encountered!')
         print('Problem integrating! System likely too stiff. Check your bio parameters.')
     else:
 
@@ -114,6 +114,7 @@ def run(params_name: str=None, params: Dict=None, method: str='odeint', ts_label
                 if np.isnan(eco).any():
 
                     if fn_count == 0:
+                        print('NaN values encountered!')
                         print('Problem integrating! System likely too stiff for sweep params below:')
 
                     # store as nans with same dimensions as output should be

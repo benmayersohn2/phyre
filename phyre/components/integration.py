@@ -4,17 +4,15 @@ integration.py: Time stepping and RHS building
 
 from typing import Dict, Tuple
 import numpy as np
+import phyre.components.bio as bio
 from scipy.integrate import ode
 from scipy.integrate import odeint
-from phyre import constants as c
-from phyre import helpers
-import phyre.components.bio as bio
 
 #########################################################################
 
 
-def integrate(eco: np.ndarray, params: Dict, method: str='odeint', data_ext: str='npy', cluster_kw: Dict=None,
-              odeint_kw: Dict=None) -> Tuple[np.ndarray, np.ndarray]:
+def integrate(eco: np.ndarray, params: Dict, method: str = 'odeint',
+              odeint_kw: Dict = None, raise_errors: bool = True) -> Tuple[np.ndarray, np.ndarray]:
     """Integrate ecosystem using the specified method
 
     Parameters
@@ -23,14 +21,12 @@ def integrate(eco: np.ndarray, params: Dict, method: str='odeint', data_ext: str
         Ecosystem output
     params
         Dict of parameters
-    data_ext
-        Extension with which to save data. Used only if we rely on a previous run as a forcing
-    cluster_kw
-        How many clusters, and what cluster are we on? Used only if we rely on a previous run as a forcing
     odeint_kw
         Keywords for ODEINT integrator
     method
-        What method to use? Either 'odeint' or 'ode'
+        What method to use? 'odeint', 'ode', or 'euler' (you must use the latter if noise)
+    raise_errors
+        Raise errors if integration doesn't work
 
     Returns
     ---------
@@ -55,10 +51,11 @@ def integrate(eco: np.ndarray, params: Dict, method: str='odeint', data_ext: str
         try:
             if method == 'odeint':
                 sol = integrate_odeint(ee, pp, odeint_kw)
-            else:
+            elif method == 'ode':
                 sol = integrate_ode(ee, pp)
-
-        except FloatingPointError:
+        except FloatingPointError as e:
+            if raise_errors:
+                raise e
             ee = np.full((ee.shape[0], t_save.shape[0]), np.nan)
 
         if sol is None:
@@ -90,14 +87,19 @@ def integrate_ode(eco: np.ndarray, params: Dict) -> Tuple[np.ndarray, np.ndarray
     t_final = params['t_final']
     dt = params['dt_save']
 
-    num_compartments = params.get('bio').get('num_compartments')
+    bb = params.get('bio')
+
+    num_compartments = bb.get('num_compartments')
 
     t_save = np.zeros(1, )
     t_save[0] = t0
 
+    if 'noise_sd' in bb:
+        del bb['noise_sd']
+
     # define rhs function
     def f(tt, eco_in):
-        return bio.bio_build(eco_in, tt, params.get('bio'))
+        return bio.bio_build(eco_in, tt, bb)
 
     r = ode(f)
     r.set_integrator('lsoda')
@@ -116,7 +118,7 @@ def integrate_ode(eco: np.ndarray, params: Dict) -> Tuple[np.ndarray, np.ndarray
     return eco[:, t_ind], t_save
 
 
-def integrate_odeint(eco: np.ndarray, params: Dict, kwargs: Dict=None) -> Tuple[np.ndarray, np.ndarray]:
+def integrate_odeint(eco: np.ndarray, params: Dict, kwargs: Dict = None) -> Tuple[np.ndarray, np.ndarray]:
     """Integrate using odeint. Currently fastest way to integrate and used by default.
 
     Parameters
@@ -139,9 +141,14 @@ def integrate_odeint(eco: np.ndarray, params: Dict, kwargs: Dict=None) -> Tuple[
     t_final = params['t_final']
     t_save = np.array(np.linspace(t0, t_final, params['num_days']))
 
+    bb = params.get('bio')
+
+    if 'noise_sd' in bb:
+        del bb['noise_sd']
+
     if kwargs is None:
-        eco = odeint(bio.bio_build, eco, t_save, args=(params.get('bio'),))
+        eco = odeint(bio.bio_build, eco, t_save, args=(bb,))
     else:
-        eco = odeint(bio.bio_build, eco, t_save, args=(params.get('bio'),), **kwargs)
+        eco = odeint(bio.bio_build, eco, t_save, args=(bb,), **kwargs)
 
     return np.transpose(eco), t_save

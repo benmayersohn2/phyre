@@ -1,5 +1,5 @@
 """
-local_constants_example.py: Sample of local_constants.py file
+local_constants.py: Local constants that are specific to each machine...
 """
 
 import os

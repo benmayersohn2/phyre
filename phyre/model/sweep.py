@@ -10,9 +10,9 @@ from phyre import constants as c
 import copy
 
 
-def run(params_name: str, params_orig: Dict=None, method: str='odeint', cluster_kw: Dict=None,
-        functions: List[Tuple[str, Callable, Dict]]=None, data_ext: str=c.DATA_EXT_DEFAULT,
-        odeint_kw: Dict=None, details_str: str=None):
+def run(params_name: str, params_orig: Dict = None, method: str='odeint', cluster_kw: Dict = None,
+        functions: List[Tuple[str, Callable, Dict]] = None, data_ext: str=c.DATA_EXT_DEFAULT,
+        odeint_kw: Dict = None, details_str: str = None):
 
     """Execute a sweep of runs of the model for the parameter set specified
 
@@ -112,8 +112,7 @@ def run(params_name: str, params_orig: Dict=None, method: str='odeint', cluster_
         popped_vals = helpers.additional_bio_setup(params, pop_values=True)
 
         # Run
-        (eco, t_save) = model_int.integrate(eco_0, params, method=method, odeint_kw=odeint_kw,
-                                            cluster_kw=cluster_kw, data_ext=data_ext)
+        (eco, t_save) = model_int.integrate(eco_0, params, method=method, odeint_kw=odeint_kw, raise_errors=False)
 
         # put keys back
         for key in popped_vals:

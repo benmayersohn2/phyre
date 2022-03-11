@@ -12,7 +12,7 @@ from phyre import ts_funs as f
 
 from argparse import ArgumentParser
 
-num_years = 80
+num_years = 10
 
 functions = [('time_series', f.time_series, None),  # store ALL years in time series. Always include this
              ('avg_phy_total', f.average_value, {'num_years': num_years, 'kind': 'total',

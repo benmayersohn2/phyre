@@ -8,6 +8,8 @@ from phyre import constants as c
 import numpy as np
 import seaborn as sns
 
+plt.switch_backend('Qt5Agg')
+
 ########################################################################
 
 params_name = 'example'
@@ -63,10 +65,7 @@ for key in keys:
         total = np.zeros((len(mat[0, :]),))
 
         if 'res_' in key:
-            if index in (0, 1) and not single_nit:
-                total = mat[c.NH4_INDEX, :] + mat[c.NO3_INDEX, :]
-            else:
-                total = mat[index, :]
+            total = mat[index, :]
         if 'phy_' in key:
             for i in range(num_phy):
                 total += res_phy_stoich_ratio[index, i] * mat[i, :]
@@ -99,7 +98,7 @@ for i in range(3):
 ax.set_xticks(xlist)
 ax.set_xticklabels(((xlist - xlist[0]) * c.NUM_DAYS_PER_YEAR).astype(int))
 
-plt.savefig('plots/single_example_debug.pdf', bbox_inches='tight', padding=0)
+plt.savefig('plots/single_example_debug.pdf', bbox_inches='tight', pad_inches=0)
 
 if len(out_list) == 0:
     print('No contributions exceed threshold! Nothing to plot.')

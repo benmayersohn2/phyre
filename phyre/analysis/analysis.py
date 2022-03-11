@@ -2,16 +2,17 @@
 analysis.py: Functions for analyzing time series post-simulation
 """
 
-from typing import List, Dict, Tuple, Union, Callable
+from typing import List, Dict, Tuple, Union, Callable, Iterable
 import numpy as np
 from phyre import helpers
 from phyre import constants as c
 import copy
+from scipy.signal import welch
+import waipy
+import pycwt
 
-
-def get_ts(eco: np.ndarray, params: Dict, num_years: int=None, compartments: List[Dict]=None,
-           num_days: int=None,
-           kind: str='indiv'):
+def get_ts(eco: np.ndarray, params: Dict, num_years: int = None, compartments: List[Dict] = None,
+           num_days: int = None, kind: str = 'indiv'):
     """Returns the input if kind == 'indiv'; shannon entropy if 'shannon'; and total biomass if 'total'
 
     Parameters
@@ -40,8 +41,8 @@ def get_ts(eco: np.ndarray, params: Dict, num_years: int=None, compartments: Lis
     return helpers.restrict_ts(eco, params, compartments=compartments, num_years=num_years, num_days=num_days)
 
 
-def apply_functions(params_name: str, functions: List[Tuple[str, Callable, Dict]], cluster_kw: Dict=None,
-                    run_type: str='sweep', data_ext: str='npy'):
+def apply_functions(params_name: str, functions: List[Tuple[str, Callable, Dict]], cluster_kw: Dict = None,
+                    run_type: str = 'sweep', data_ext: str = 'npy'):
     """Apply function(s) to output data. Use for sweep outputs across clusters
 
     Parameters
@@ -195,8 +196,8 @@ def apply_functions(params_name: str, functions: List[Tuple[str, Callable, Dict]
         apply_single(current_pp)
 
 
-def time_series(eco: np.ndarray, params: Dict, num_years: int=None, num_days: int=None, compartments: List[Dict]=None,
-                kind: str='indiv') -> np.ndarray:
+def time_series(eco: np.ndarray, params: Dict, num_years: int = None, num_days: int = None,
+                compartments: List[Dict] = None, kind: str = 'indiv') -> np.ndarray:
     """Useful for saving data
 
     Parameters
@@ -243,8 +244,8 @@ def time_series(eco: np.ndarray, params: Dict, num_years: int=None, num_days: in
 
 
 def res_to_carbon_conversions(eco: np.ndarray,
-                              params: Dict, num_years: int=None, num_days: int=None, phy_index: int=None,
-                              return_factor: bool=False) -> np.ndarray:
+                              params: Dict, num_years: int = None, num_days: int = None, phy_index: int = None,
+                              return_factor: bool = False) -> np.ndarray:
     """Convert from inorganic nutrient units to carbon units, as a function of current population
 
     Parameters
@@ -295,8 +296,8 @@ def stoich_from_phy(phy: np.ndarray, params: dict):
     return factor
 
 
-def coeff_of_variation(eco: np.ndarray, params: Dict, kind: str='indiv',
-                       compartments: List[Dict]=None, num_years: int=None, num_days: int=None) -> np.ndarray:
+def coeff_of_variation(eco: np.ndarray, params: Dict, kind: str = 'indiv',
+                       compartments: List[Dict] = None, num_years: int = None, num_days: int = None) -> np.ndarray:
     """Compute coefficient of variation
 
     Parameters
@@ -335,8 +336,8 @@ def coeff_of_variation(eco: np.ndarray, params: Dict, kind: str='indiv',
     return np.array(coeff)
 
 
-def variance(eco: np.ndarray, params: Dict,
-             kind: str='indiv', compartments: List[Dict]=None, num_years: int=None, num_days: int=None) -> np.ndarray:
+def variance(eco: np.ndarray, params: Dict, kind: str = 'indiv', compartments: List[Dict] = None,
+             num_years: int = None, num_days: int = None) -> np.ndarray:
     """Compute variance
 
     Parameters
@@ -373,8 +374,8 @@ def variance(eco: np.ndarray, params: Dict,
 
 
 def max_value(eco: np.ndarray, params: Dict,
-              kind: str='indiv', compartments: List[Dict]=None, num_years: int=None,
-              num_days: int=None, mean_amp_thresh: int=0) -> np.ndarray:
+              kind: str = 'indiv', compartments: List[Dict] = None, num_years: int = None,
+              num_days: int = None, mean_amp_thresh: int = 0) -> np.ndarray:
     """Compute max value in each time series
 
     Parameters
@@ -385,8 +386,10 @@ def max_value(eco: np.ndarray, params: Dict,
         'indiv', 'total' or 'shannon'
     params
         Dict of parameters
+    num_days
+        How many days to include?
     num_years
-        How many years do we want to include?
+        How many years do we want to include? (only specify if num_days not specified)
     compartments
         List of compartment dictionaries
     mean_amp_thresh
@@ -423,8 +426,8 @@ def max_value(eco: np.ndarray, params: Dict,
 
 # find average
 def average_value(eco: np.ndarray, params: Dict,
-                  kind: str='indiv', compartments: List[Dict]=None, num_years: int=None, num_days: int=None,
-                  mean_amp_thresh: int=0) -> np.ndarray:
+                  kind: str = 'indiv', compartments: List[Dict] = None, num_years: int = None, num_days: int = None,
+                  mean_amp_thresh: int = 0) -> np.ndarray:
     """Compute average value
 
     Parameters
@@ -452,7 +455,9 @@ def average_value(eco: np.ndarray, params: Dict,
     """
 
     if kind == 'shannon':
-        phy_indices = compartments[0]['phy'] if compartments is not None else None
+        phy_indices = None
+        if compartments is not None and compartments[0]['phy'] != 'all':
+            phy_indices = compartments[0]['phy']
         shan = shannon_ent_rel(eco, params, num_years=num_years, num_days=num_days, phy_indices=phy_indices)
 
         # if average value of total exceeds threshold, return shannon entropy
@@ -473,9 +478,9 @@ def average_value(eco: np.ndarray, params: Dict,
     return np.apply_along_axis(np.mean, 1, eco)
 
 
-def is_a_survivor(eco: np.ndarray, params: Dict,
-                  abs_amp_thresh: float=0, rel_amp_thresh: float=None, num_years: int=None,
-                  num_days: int=None) -> np.ndarray:
+def is_a_survivor(eco: np.ndarray, params: Dict, compartments=None,
+                  abs_amp_thresh: float=0, rel_amp_thresh: float = None, num_years: int = None,
+                  num_days: int = None) -> np.ndarray:
 
     """Does a given species survive (relative to a threshold)?
 
@@ -505,13 +510,13 @@ def is_a_survivor(eco: np.ndarray, params: Dict,
 
     """
 
-    compartments = [{'phy': 'all'}]
+    if compartments is None:
+        compartments = [{'phy': 'all'}]
 
-    # get eco for phytoplankton only
-    eco = eco[helpers.all_compartment_indices(params, compartments=compartments), :]
+    indices = helpers.all_compartment_indices(params, compartments=compartments)
+    eco = eco[indices, :]
 
-    num_phy = params['bio']['num_phy']
-    survived = np.zeros(num_phy,)
+    survived = np.zeros(len(indices),)
 
     max_amp = np.amax(average_value(eco, params, compartments=compartments, num_years=num_years, num_days=num_days))
 
@@ -521,7 +526,7 @@ def is_a_survivor(eco: np.ndarray, params: Dict,
         eco = helpers.get_last_n_days(eco, num_days)
 
     if max_amp > abs_amp_thresh:
-        for i in range(num_phy):
+        for i in range(len(indices)):
             avg = np.mean(eco[i, :])
             if rel_amp_thresh is not None:
                 if avg / max_amp > rel_amp_thresh:
@@ -533,8 +538,8 @@ def is_a_survivor(eco: np.ndarray, params: Dict,
     return survived
 
 
-def shannon_ent_rel(eco_in: np.ndarray, params: Dict, num_years: int=None, num_days: int=None,
-                    phy_indices: tuple=None) -> np.ndarray:
+def shannon_ent_rel(eco_in: np.ndarray, params: Dict, num_years: int = None, num_days: int = None,
+                    phy_indices: tuple = None) -> np.ndarray:
     """Relative shannon entropy
 
     Parameters
@@ -566,8 +571,8 @@ def shannon_ent_rel(eco_in: np.ndarray, params: Dict, num_years: int=None, num_d
                        phy_indices=phy_indices) / np.log2(num_phy)
 
 
-def shannon_ent(eco_in: np.ndarray, params: Dict, num_years: int=None, num_days: int=None,
-                phy_indices: tuple=None) -> np.ndarray:
+def shannon_ent(eco_in: np.ndarray, params: Dict, num_years: int = None, num_days: int = None,
+                phy_indices: tuple = None) -> np.ndarray:
     """Shannon entropy, which describes the 'evenness' of the distribution of species across compartments
 
     Parameters
@@ -689,7 +694,8 @@ def unique_vals(input_list: Union[np.ndarray, List], tol: float=1e-2) -> np.ndar
 
 
 def filtered_spectrum_simple(ts: np.ndarray, dt: float=1.0, thres: float=0, sort: str='amps',
-                             subtract_mean: bool=False, normalize: bool=False) \
+                             detrend: str = 'constant', normalize: bool=False,
+                             window: str = 'boxcar', nperseg: int = None, noverlap: int = None) \
         -> Tuple[np.ndarray, np.ndarray]:
     """Calculate the Fourier spectrum of a simple time series (filtered by a frequency threshold)
 
@@ -702,12 +708,18 @@ def filtered_spectrum_simple(ts: np.ndarray, dt: float=1.0, thres: float=0, sort
     sort
         'freqs': sort by frequency (ascending)
         'amps': sort by amplitude (descending)
-    subtract_mean
-        Remove mean from signal before computing transform?
+    detrend
+        detrend?
     normalize
         Scale by maximum amplitude?
     thres
         Include frequencies above this threshold
+    window
+        Apply a window
+    nperseg
+        Number of points per Welch segment
+    noverlap
+        Number of overlapping points between Welch segments
 
     Returns
     ---------
@@ -715,7 +727,8 @@ def filtered_spectrum_simple(ts: np.ndarray, dt: float=1.0, thres: float=0, sort
         frequencies and amplitudes in tuple
     """
 
-    freqs, amps = freq_spectrum_simple(ts, dt, sort=sort, subtract_mean=subtract_mean, normalize=normalize)
+    freqs, amps = freq_spectrum_simple(ts, dt, sort=sort, detrend=detrend, normalize=normalize,
+                                       window=window, nperseg=nperseg, noverlap=noverlap)
 
     amps_filter = np.array(amps[np.where(freqs >= thres)[0]].tolist())
     freqs_filter = np.array(freqs[np.where(freqs >= thres)[0]].tolist())
@@ -723,8 +736,8 @@ def filtered_spectrum_simple(ts: np.ndarray, dt: float=1.0, thres: float=0, sort
     return freqs_filter, amps_filter
 
 
-def get_total(eco: np.ndarray, params: Dict, compartments: List[Dict]=None, num_years: int=None,
-              num_days: int=None) -> np.ndarray:
+def get_total(eco: np.ndarray, params: Dict, compartments: List[Dict] = None, num_years: int = None,
+              num_days: int = None) -> np.ndarray:
     """Biomass for carbon-based compartments (phy or zoo)
 
     Parameters
@@ -763,10 +776,11 @@ def get_total(eco: np.ndarray, params: Dict, compartments: List[Dict]=None, num_
 
 
 def filtered_spectrum(eco: np.ndarray, params: Dict,
-                      kind: str='indiv', num_years: int=None, num_days: int=None,
-                      compartments: List[Dict]=None,
-                      subtract_mean: bool=False, sort: str='amps',
-                      normalize: bool=False, thres: float=0) -> \
+                      kind: str='indiv', num_years: int = None, num_days: int = None,
+                      compartments: List[Dict] = None,
+                      detrend: str='constant', sort: str='amps',
+                      normalize: bool=False, thres: float=0, window: str = 'boxcar',
+                      nperseg: int = None, noverlap: int = None) -> \
         Tuple[np.ndarray, np.ndarray]:
 
     """Fourier spectrum of ecosystem, filtered by a frequency threshold
@@ -785,8 +799,8 @@ def filtered_spectrum(eco: np.ndarray, params: Dict,
         Alternate to num_years
     compartments
         List of compartment dictionaries
-    subtract_mean
-        Remove mean from signal before computing transform?
+    detrend
+        detrend?
     normalize
         Scale by maximum amplitude?
     thres
@@ -794,6 +808,12 @@ def filtered_spectrum(eco: np.ndarray, params: Dict,
     sort
         'freqs': sort by frequency (ascending)
         'amps': sort by amplitude (descending)
+    window
+        Apply a window
+    nperseg
+        Number of points per Welch segment
+    noverlap
+        Number of overlapping points between Welch segments
 
     Returns
     ---------
@@ -802,7 +822,8 @@ def filtered_spectrum(eco: np.ndarray, params: Dict,
     """
 
     freqs, amps = freq_spectrum(eco, params, kind=kind, num_years=num_years, num_days=num_days, sort=sort,
-                                compartments=compartments, subtract_mean=subtract_mean, normalize=normalize)
+                                compartments=compartments, detrend=detrend, normalize=normalize,
+                                window=window, nperseg=nperseg, noverlap=noverlap)
 
     # if it's just a vector...
     if len(np.shape(freqs)) == 1:
@@ -822,7 +843,8 @@ def filtered_spectrum(eco: np.ndarray, params: Dict,
 
 
 def freq_spectrum_simple(ts: np.ndarray, dt: float=1.0, sort: str='amps',
-                         normalize: bool=False, subtract_mean: bool=False) \
+                         normalize: bool=False, detrend: str = 'constant',
+                         window: str = 'boxcar', nperseg: int = None, noverlap: int = None) \
         -> Tuple[np.ndarray, np.ndarray]:
     """Calculate the Fourier spectrum of a simple time series
 
@@ -830,15 +852,21 @@ def freq_spectrum_simple(ts: np.ndarray, dt: float=1.0, sort: str='amps',
     ----------
     ts
         time series
-    subtract_mean
-        remove mean?
     normalize
         scale by maximum?
+    detrend
+        Detrend signal before computing transform?
     dt
         what is the time interval of data recording? (probably 1 day)
     sort
         'freqs': sort by frequency (ascending)
         'amps': sort by amplitude (descending)
+    window
+        Apply a window
+    nperseg
+        Number of points per Welch segment
+    noverlap
+        Number of overlapping points between Welch segments
 
     Returns
     ---------
@@ -846,12 +874,18 @@ def freq_spectrum_simple(ts: np.ndarray, dt: float=1.0, sort: str='amps',
         frequencies and amplitudes in tuple
     """
 
-    # get rid of 0 frequency mode
-    if subtract_mean:
-        ts -= np.mean(ts)
+    if nperseg is None:
+        nperseg = len(ts)
 
-    amps = 1 / ts.size * np.abs(np.fft.fft(ts))
-    freqs = np.fft.fftfreq(ts.size, dt)
+    if noverlap is None:
+        noverlap = 0
+
+    freqs, amps = welch(ts, fs=1 / dt, window=window, nperseg=nperseg, noverlap=noverlap,
+                        scaling='spectrum', detrend=detrend, return_onesided=False)
+    amps = 2 * np.sqrt(amps)
+
+    # amps = 2 / ts.size * np.abs(np.fft.fft(ts))
+    # freqs = np.fft.fftfreq(ts.size, dt)
 
     if sort == 'amps':
         ind = amps.argsort()[::-1]
@@ -868,9 +902,10 @@ def freq_spectrum_simple(ts: np.ndarray, dt: float=1.0, sort: str='amps',
     return freqs, amps
 
 
-def freq_spectrum(eco: np.ndarray, params: Dict, kind: str='indiv', num_years: int=None, num_days: int=None,
-                  compartments: List[Dict]=None, subtract_mean: bool=False, normalize: bool=False,
-                  sort: str='amps') -> Tuple[np.ndarray, np.ndarray]:
+def freq_spectrum(eco: np.ndarray, params: Dict, kind: str='indiv', num_years: int = None, num_days: int = None,
+                  compartments: List[Dict] = None, detrend: str='constant', normalize: bool=False,
+                  sort: str='amps', window: str = 'boxcar',
+                  nperseg: int = None, noverlap: int = None) -> Tuple[np.ndarray, np.ndarray]:
     """Fourier spectrum of ecosystem
 
     Parameters
@@ -890,10 +925,16 @@ def freq_spectrum(eco: np.ndarray, params: Dict, kind: str='indiv', num_years: i
         'amps': sort by amplitude (descending)
     compartments
         List of compartment dictionaries
-    subtract_mean
-        Remove mean from signal before computing transform?
+    detrend
+        detrend?
     normalize
         Scale by maximum amplitude?
+    window
+        Apply a window
+    nperseg
+        Number of points per Welch segment
+    noverlap
+        Number of overlapping points between Welch segments
 
     Returns
     ---------
@@ -907,7 +948,8 @@ def freq_spectrum(eco: np.ndarray, params: Dict, kind: str='indiv', num_years: i
         shannon_end = shannon_ent_rel(eco, params, num_years=num_years, num_days=num_days)
 
         freqs, amps = freq_spectrum_simple(shannon_end, params['dt_save'], sort=sort,
-                                           subtract_mean=subtract_mean, normalize=normalize)
+                                           detrend=detrend, normalize=normalize,
+                                           window=window, nperseg=nperseg, noverlap=noverlap)
 
         return np.array([freqs]), np.array([amps])
 
@@ -938,14 +980,14 @@ def freq_spectrum(eco: np.ndarray, params: Dict, kind: str='indiv', num_years: i
         current_series = np.array(eco_end[i, :])
 
         freqs[i, :], amps[i, :] = freq_spectrum_simple(current_series, params['dt_save'], sort=sort,
-                                                       subtract_mean=subtract_mean,
-                                                       normalize=normalize)
+                                                       detrend=detrend, normalize=normalize,
+                                                       window=window, nperseg=nperseg, noverlap=noverlap)
 
     return freqs, amps
 
 
-def largest_phy_freq_count(eco: np.ndarray, params: Dict, spectrum_kw: Dict=None, abs_amp_thresh: float=0.1,
-                           rel_amp_thresh: float=1e-2, num_years: int=None, num_days: int=None) -> int:
+def largest_phy_freq_count(eco: np.ndarray, params: Dict, spectrum_kw: Dict = None, abs_amp_thresh: float=0.1,
+                           rel_amp_thresh: float=1e-2, num_years: int = None, num_days: int = None) -> int:
     """Frequency count for most abundant species in the ecosystem
 
     Parameters
@@ -984,10 +1026,10 @@ def largest_phy_freq_count(eco: np.ndarray, params: Dict, spectrum_kw: Dict=None
                       spectrum_kw=spectrum_kw, abs_amp_thresh=abs_amp_thresh, rel_amp_thresh=rel_amp_thresh)[0]
 
 
-def freq_count(eco: np.ndarray, params: Dict, kind: str='indiv', spectrum_kw: Dict=None, abs_amp_thresh: float=0.0,
-               num_days: int=None, power_spectrum: bool=False,
-               rel_amp_thresh: float=1e-2, num_years: int=None, compartments: List[Dict]=None,
-               skip_interval: int=1) \
+def freq_count(eco: np.ndarray, params: Dict, kind: str = 'indiv', spectrum_kw: Dict = None,
+               abs_amp_thresh: float = 0.0, num_days: int = None, power_spectrum: bool = False,
+               rel_amp_thresh: float = 1e-2, num_years: int = None, compartments: List[Dict] = None,
+               skip_interval: int = 1) \
         -> np.ndarray:
     """Frequency count for most abundant species in the ecosystem
 
@@ -1048,10 +1090,10 @@ def freq_count(eco: np.ndarray, params: Dict, kind: str='indiv', spectrum_kw: Di
     return counts
 
 
-def adjacent_freq_count(eco: np.ndarray, params: Dict, kind: str='indiv', spectrum_kw: Dict=None,
-                        abs_amp_thresh: float=0.0, num_days: int=None, power_spectrum: bool=False,
-                        rel_amp_thresh: float=1e-2, num_years: int=None, compartments: List[Dict]=None,
-                        segment_frac: float=0.1) -> np.ndarray:
+def adjacent_freq_count(eco: np.ndarray, params: Dict, kind: str = 'indiv', spectrum_kw: Dict = None,
+                        abs_amp_thresh: float = 0.0, num_days: int = None, power_spectrum: bool = False,
+                        rel_amp_thresh: float = 1e-2, num_years: int = None, compartments: List[Dict] = None,
+                        segment_frac: float = 0.1) -> np.ndarray:
     """Frequency count for most abundant species in the ecosystem
 
     Parameters
@@ -1117,12 +1159,11 @@ def adjacent_freq_count(eco: np.ndarray, params: Dict, kind: str='indiv', spectr
     return counts
 
 
-def dom_freq(eco: np.ndarray, params: Dict, spectrum_kw: Dict=None, mean_amp_thresh: float=0, kind: str='indiv',
-             rel_amp_thresh: float=0, num_days: int=None, freq_interval: tuple=(0, np.inf),
+def dom_freq(eco: np.ndarray, params: Dict, spectrum_kw: Dict = None, mean_amp_thresh: float = 0, kind: str = 'indiv',
+             rel_amp_thresh: float = 0, num_days: int = None, freq_interval: tuple = (0, np.inf),
              num_years: int = None, compartments: List[Dict] = None) -> np.ndarray:
     """Dominant frequency for desired ecosystem compartments
-    A value of 0 for a subtract_meaned (mean subtracted) time series ==> the species achieved equilibrium.
-    A value of c.DEAD_VALUE means that the species died.
+    A value of 0 for a detrended time series ==> the species achieved equilibrium.
 
     Parameters
     ----------
@@ -1188,21 +1229,25 @@ def dom_freq(eco: np.ndarray, params: Dict, spectrum_kw: Dict=None, mean_amp_thr
         amps_good = amps[i, good_locs]
 
         if means[i] > mean_amp_thresh:
-            if kw.get('subtract_mean'):
-                if amps_good[i] / means[i] > rel_amp_thresh:
-                    dom_freqs[i] = freqs_good[i]
+            if kw.get('detrend'):
+                index = 1 if freqs_good[0] == 0 else 0
+                if amps_good[index] / means[i] > rel_amp_thresh:
+                    dom_freqs[i] = freqs_good[index]
                 else:
-                    dom_freqs[i] = 0
+                    dom_freqs[i] = c.NAN_VALUE
             else:
                 dom_freqs[i] = freqs_good[i]
         else:
             dom_freqs[i] = c.NAN_VALUE
 
+    if kind == 'indiv':
+        print(dom_freqs)
+
     return dom_freqs
 
 
-def average_cycle_simple(x: np.ndarray, period: float=c.NUM_DAYS_PER_YEAR, subtract: bool=False,
-                         truncate: bool=False) -> np.ndarray:
+def average_cycle_simple(x: np.ndarray, period: float = c.NUM_DAYS_PER_YEAR, subtract: bool = False,
+                         truncate: bool = False) -> np.ndarray:
     """Average cycle of period T (in days) from time series
 
         Parameters
@@ -1247,9 +1292,9 @@ def average_cycle_simple(x: np.ndarray, period: float=c.NUM_DAYS_PER_YEAR, subtr
 
 
 # now for the ecosystem
-def average_cycle(eco: np.ndarray, params: Dict, kind: str='indiv', period: float=c.NUM_DAYS_PER_YEAR,
-                  num_years: int=None, num_days: int=None, subtract: bool=False, truncate: bool=False,
-                  compartments: List[Dict]=None) -> np.ndarray:
+def average_cycle(eco: np.ndarray, params: Dict, kind: str = 'indiv', period: float = c.NUM_DAYS_PER_YEAR,
+                  num_years: int = None, num_days: int = None, subtract: bool = False, truncate: bool = False,
+                  compartments: List[Dict] = None) -> np.ndarray:
     """Average cycle of period T (in days) from ecosystem
 
         Parameters
@@ -1312,3 +1357,217 @@ def average_cycle(eco: np.ndarray, params: Dict, kind: str='indiv', period: floa
 
     return output
 
+####################
+
+# WAVELETS
+# Add keyword arguments so we can use **kwargs
+# default parameters
+# dt = 1
+# pad = 1  # pad the time series with zeroes (recommended)
+# num_suboctaves = 4  # number of sub-octaves ("voices") per octave
+# s0 = 2 * dt  # Start at a scale of two days
+# num_octaves = 7: number of octaves
+# lag1 = 0.72  # lag-1 autocorrelation for red noise background (lag1 = 0 is white noise)
+# param = 6
+# mother = 'Morlet'
+def wavelet_cwt(data, dt=1.0, pad=1, num_suboctaves=4, num_octaves=None, start_period=2.0, lag1=0.72, param=6, mother='Morlet', name='x', method='waipy'):
+    data = waipy.normalize(data)
+    if method == 'waipy':
+        j1_max = int(np.floor(np.log2(len(data) * dt / start_period) * num_suboctaves))
+        if num_octaves is None:
+            j1 = j1_max
+        else:
+            j1 = int(float(num_suboctaves) * float(num_octaves))
+            j1 = min(j1, j1_max)
+        return waipy.cwt(data, dt, pad, 1.0 / num_suboctaves, start_period, j1, lag1, param, mother, name, J1=j1)
+    elif method == 'pycwt':
+        out = pycwt.cwt(data, dt, dj=1/num_suboctaves, s0=start_period, wavelet=mother.lower())
+        wv, scales, freqs, coi, fft, fftfreqs = out
+        power = np.abs(wv) ** 2
+        # Get global wavelet spectrum
+        variance = np.var(data)
+        n = len(data)
+        global_ws  = variance * power.sum(axis=1) / n
+        result = {'scale': scales, 'global_ws': global_ws, 'period': 1/freqs}
+        return result
+
+def wavelet_spectrum_simple(ts: np.ndarray, sort: str = 'amps', normalize: bool = False, rectify_bias: bool = False, thres: float = 0, return_raw: bool = False, **kwargs):
+    result = wavelet_cwt(ts, **kwargs)
+
+    if return_raw:
+        return result
+
+    # Bias rectification (see http://ocg6.marine.usf.edu/~liu/wavelet.html)
+    # Scale global wavelet spectrum
+    scales = result['scale']
+    amps = result['global_ws']
+    if rectify_bias:
+        amps /= scales
+
+    freqs = 1 / result['period']
+
+    amps = amps[np.where(freqs >= thres)[0]]
+    freqs = freqs[np.where(freqs >= thres)[0]]
+
+    if sort == 'amps':
+        ind = amps.argsort()[::-1]
+        freqs = freqs[ind]
+        amps = amps[ind]
+    if sort == 'freqs':
+        ind = freqs.argsort()
+        freqs = freqs[ind]
+        amps = amps[ind]
+
+    if normalize and np.amax(amps) > 0:
+        amps = amps / np.amax(amps)
+
+    return freqs, amps
+
+
+def wavelet_spectrum(eco: np.ndarray, params: Dict,
+                     kind: str = 'indiv', num_years: int = None, num_days: int = None,
+                     compartments: List[Dict] = None, sort: str = 'amps', normalize: bool = False,
+                     thres: float = 0, **kwargs) -> Union[Tuple, np.ndarray]:
+    if kind == 'shannon':
+        phy_indices = None
+        if compartments is not None and compartments[0]['phy'] != 'all':
+            phy_indices = compartments[0]['phy']
+
+        # Compute relative Shannon entropy
+        shannon_end = shannon_ent_rel(eco, params, num_years=num_years, num_days=num_days, phy_indices=phy_indices)
+
+        freqs, amps = wavelet_spectrum_simple(shannon_end, sort=sort, normalize=normalize, thres=thres, **kwargs)
+
+        return np.array([freqs]), np.array([amps])
+
+    if compartments is None:
+        compartments = [{'phy': 'all'}]
+
+    indices = helpers.all_compartment_indices(params, compartments=compartments)
+
+    eco_end = helpers.restrict_ts(eco, params, compartments=compartments, num_years=num_years, num_days=num_days)
+    num_days_end = eco_end.shape[-1]
+
+    if kind == 'total':
+        eco_end = np.reshape(get_total(eco, params, compartments=compartments, num_years=num_years, num_days=num_days),
+                             (1, num_days_end))
+        indices = [0]
+
+    if len(np.shape(eco_end)) == 1:
+        eco_end = np.reshape(eco_end, (1, num_days_end))
+        indices = [0]
+
+    num_compartments = len(indices)
+
+    # Amps/freqs/scales of compartments
+    amps = freqs = None
+    for i in range(0, num_compartments):
+        current_series = np.array(eco_end[i, :])
+        ff, aa, ss = wavelet_spectrum_simple(current_series, sort=sort, normalize=normalize, thres=thres, **kwargs)
+
+        # Length of output determined by wavelet parameters; will be the same for each series
+        if freqs is None:
+            amps = np.zeros((num_compartments, len(ff)))
+            freqs = np.zeros((num_compartments, len(ff)))
+
+        freqs[i, :] = np.array(ff)
+        amps[i, :] = np.array(aa)
+
+    if len(np.shape(freqs)) == 1:
+        amps_filter = amps[np.where(freqs >= thres)[0]].tolist()
+        freqs_filter = freqs[np.where(freqs >= thres)[0]].tolist()
+
+    # otherwise it's a matrix, go row by row
+    else:
+        amps_filter = list()
+        freqs_filter = list()
+
+        for i in range(len(freqs[:, 0])):
+            amps_filter.append(amps[i, np.where(freqs[i, :] >= thres)[0]].tolist())
+            freqs_filter.append(freqs[i, np.where(freqs[i, :] >= thres)[0]].tolist())
+
+    return np.array(freqs_filter), np.array(amps_filter)
+
+
+# NEW: Allow for multiple frequencies
+def dom_wavelet_freq(eco: np.ndarray, params: Dict, spectrum_kw: Dict = None, mean_amp_thresh: float = 0,
+                     kind: str = 'indiv', num_freqs: int=1,
+                     rel_amp_thresh: float = 0, num_days: int = None, freq_interval: tuple = (0, np.inf),
+                     num_years: int = None, compartments: List[Dict] = None, **kwargs) -> np.ndarray:
+    """Dominant frequency for desired ecosystem compartments
+    A value of 0 for a detrended time series ==> the species achieved equilibrium.
+
+    Parameters
+    ----------
+    eco
+        Ecosystem output
+    kind
+        'indiv', 'shannon', 'total'
+    num_freqs
+        How many frequencies to include? By default, just top frequency
+    params
+        Dict of parameters
+    compartments
+        list of compartment dictionaries
+    spectrum_kw
+        keyword arguments for wavelet spectrum calculation
+    mean_amp_thresh
+        threshold for a species to be considered existing
+    rel_amp_thresh
+        relative threshold for second largest frequency to be considered "large" compared to mean freq
+    freq_interval
+        interval of frequencies to look at when computing dominant frequency
+    num_years
+        How many years do we want to include?
+    num_days
+        How many days do we want to include?
+
+    Returns
+    ---------
+    np.ndarray
+        Dominant frequencies for our desired compartments
+    """
+
+    # make sure spectrum_kw['sort'] = 'amps' if it isn't already
+    kw = dict(spectrum_kw) if spectrum_kw is not None else dict()
+    kw['sort'] = 'amps'
+    kw.update(**kwargs)
+
+    freqs, amps = wavelet_spectrum(eco, params, kind=kind, num_years=num_years, compartments=compartments,
+                                   num_days=num_days, **kw)
+
+    amps = np.array(amps)
+    freqs = np.array(freqs)
+
+    # get means
+    means = average_value(eco, params, kind=kind, compartments=compartments, num_years=num_years, num_days=num_days)
+
+    # take mean of total (we need this for shannon entropy)
+    means_total = \
+    average_value(eco, params, kind='total', compartments=compartments, num_years=num_years, num_days=num_days)[0]
+
+    s = np.shape(amps)
+
+    if len(s) == 1:
+        s = (1, s[0])
+        freqs = np.reshape(freqs, s)
+
+    dom_freqs = []
+
+    if kind == 'shannon' and not (means_total > mean_amp_thresh):
+        return np.array([c.NAN_VALUE])
+
+    for i in range(s[0]):
+
+        good_locs = np.where((freqs[i, :] >= freq_interval[0]) & (freqs[i, :] <= freq_interval[-1]))[0]
+        freqs_good = freqs[i, good_locs]
+        amps_good = amps[i, good_locs]
+
+        if means[i] > mean_amp_thresh:
+            dom_freq = freqs_good[i] if num_freqs == 1 else freqs_good[i:(i+num_freqs)]
+        else:
+            dom_freq = c.NAN_VALUE if num_freqs == 1 else (num_freqs * [c.NAN_VALUE])
+
+        dom_freqs.append(dom_freq)
+
+    return np.array(dom_freqs)
